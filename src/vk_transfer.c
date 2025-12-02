@@ -3,7 +3,30 @@
 
 #include <assert.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <vulkan/vulkan.h>
+
+static void trigger_err_callback_vulkan(transfer_engine* engine, VkResult vk_error) {
+    transfer_engine_deinit(engine);
+    if (engine->error_callback != NULL) {
+        transfer_error error;
+        error.type           = TRANSFER_ERROR_TYPE_VULKAN;
+        error.internal_error = TRANSFER_INTERNAL_ERROR_NONE;
+        error.vk_error       = vk_error;
+        engine->error_callback(error);
+    }
+}
+
+static void trigger_err_callback_internal(transfer_engine* engine, transfer_internal_error internal_error) {
+    transfer_engine_deinit(engine);
+    if (engine->error_callback != NULL) {
+        transfer_error error;
+        error.type           = TRANSFER_ERROR_TYPE_INTERNAL;
+        error.internal_error = internal_error;
+        error.vk_error       = VK_SUCCESS;
+        engine->error_callback(error);
+    }
+}
 
 static void enqueue_request(transfer_engine* engine, const transfer_request* request) {
     transfer_request_queue* queue = &engine->request_queue;
@@ -21,7 +44,7 @@ static transfer_request dequeue_request(transfer_engine* engine) {
 
     pthread_mutex_lock(&queue->mutex);
 
-    while (queue->back == queue->front) {
+    while (queue->back == queue->front && !atomic_load(&engine->should_close)) {
         // queue is empty
         pthread_cond_wait(&queue->worker_notify_cond, &queue->mutex);
     }
@@ -34,16 +57,20 @@ static transfer_request dequeue_request(transfer_engine* engine) {
     return curr_request;
 }
 
-static i32 get_available_command_buffer_idx(const transfer_engine* engine) {
+static i32 get_available_command_buffer_idx(transfer_engine* engine) {
     i32 i = 0;
     while (1) {
         VkResult vk_res = vkGetFenceStatus(engine->vk_device, engine->command_pool.fences[i]);
         if (vk_res == VK_SUCCESS) {
             // current fence is signaled and ready
+            break;
+        }
+        if (vk_res == VK_NOT_READY) {
+            i = (i + 1) % CMD_BUF_COUNT;
             continue;
         }
-        // TODO handle error codes
-        i = (i + 1) % CMD_BUF_COUNT;
+
+        trigger_err_callback_vulkan(engine, vk_res);
     }
 
     return i;
@@ -64,9 +91,14 @@ void* worker(void* arg) {
     while (!atomic_load(&engine->should_close)) {
         transfer_request req = dequeue_request(engine);
 
-        i32             cmd_idx = get_available_command_buffer_idx(engine);
-        VkFence         fence   = engine->command_pool.fences[cmd_idx];
-        VkCommandBuffer cmd     = engine->command_pool.buffers[cmd_idx];
+        if (atomic_load(&engine->should_close)) {
+            break;
+        }
+
+        i32 cmd_idx = get_available_command_buffer_idx(engine);
+
+        VkFence         fence = engine->command_pool.fences[cmd_idx];
+        VkCommandBuffer cmd   = engine->command_pool.buffers[cmd_idx];
 
         vkResetFences(engine->vk_device, 1, &fence);
 
@@ -75,11 +107,10 @@ void* worker(void* arg) {
 
         vkBeginCommandBuffer(cmd, &cmd_buf_bi);
 
-        // TODO: perform transfer depending on request type
-
         switch (req.type) {
         case TRANSFER_TYPE_BUFFER_TO_BUFFER:
             transfer_buffer_to_buffer(cmd, &req);
+            break;
 
         default:
             assert(0 && "unhandled transfer type");
@@ -97,14 +128,23 @@ void* worker(void* arg) {
     return NULL;
 }
 
-void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_queue_family) {
+void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_queue_family, const transfer_error_callback* error_callback) {
+
+    engine->error_callback = *error_callback;
+    atomic_store(&engine->should_close, false);
+
     VkCommandPoolCreateInfo pool_ci;
     pool_ci.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     pool_ci.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     pool_ci.queueFamilyIndex = transfer_queue_family;
 
     // TODO: handle vulkan errors
-    vkCreateCommandPool(device, &pool_ci, NULL, &engine->command_pool.pool);
+    VkResult vk_res;
+    vk_res = vkCreateCommandPool(device, &pool_ci, NULL, &engine->command_pool.pool);
+
+    if (vk_res != VK_SUCCESS) {
+        trigger_err_callback_vulkan(engine, vk_res);
+    }
 
     VkCommandBufferAllocateInfo command_buffer_ai;
     command_buffer_ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -112,7 +152,11 @@ void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer
     command_buffer_ai.commandPool        = engine->command_pool.pool;
     command_buffer_ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-    vkAllocateCommandBuffers(device, &command_buffer_ai, engine->command_pool.buffers);
+    vk_res = vkAllocateCommandBuffers(device, &command_buffer_ai, engine->command_pool.buffers);
+
+    if (vk_res != VK_SUCCESS) {
+        trigger_err_callback_vulkan(engine, vk_res);
+    }
 
     vkGetDeviceQueue(device, transfer_queue_family, 0, &engine->vk_queue);
 
@@ -121,7 +165,11 @@ void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer
     fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     for (i32 i = 0; i < CMD_BUF_COUNT; ++i) {
-        vkCreateFence(device, &fence_ci, NULL, &engine->command_pool.fences[i]);
+        vk_res = vkCreateFence(device, &fence_ci, NULL, &engine->command_pool.fences[i]);
+
+        if (vk_res != VK_SUCCESS) {
+            trigger_err_callback_vulkan(engine, vk_res);
+        }
     }
 
     engine->request_queue.front = 0;
@@ -129,14 +177,26 @@ void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer
 
     engine->vk_device = device;
 
-    pthread_create(&engine->worker_thread, NULL, worker, engine);
-    pthread_cond_init(&engine->request_queue.worker_notify_cond, NULL);
-    pthread_mutex_init(&engine->request_queue.mutex, NULL);
+    i32 pthread_res;
+    pthread_res = pthread_create(&engine->worker_thread, NULL, worker, engine);
+    pthread_res = pthread_cond_init(&engine->request_queue.worker_notify_cond, NULL);
+    pthread_res = pthread_mutex_init(&engine->request_queue.mutex, NULL);
+
+    if (pthread_res != 0) {
+        trigger_err_callback_internal(engine, TRANSFER_INTERNAL_ERROR_PTHREAD_CANNOT_CREATE);
+    }
 }
 
 void transfer_engine_deinit(transfer_engine* engine) {
+    atomic_store(&engine->should_close, true);
+
+    pthread_mutex_lock(&engine->request_queue.mutex);
+    pthread_cond_broadcast(&engine->request_queue.worker_notify_cond);
+    pthread_mutex_unlock(&engine->request_queue.mutex);
+
     pthread_mutex_destroy(&engine->request_queue.mutex);
     pthread_cond_destroy(&engine->request_queue.worker_notify_cond);
+
     pthread_join(engine->worker_thread, NULL);
 
     for (i32 i = 0; i < CMD_BUF_COUNT; ++i) {

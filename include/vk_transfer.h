@@ -40,13 +40,34 @@ typedef struct transfer_command_pool {
     VkFence         fences[CMD_BUF_COUNT];
 } transfer_command_pool;
 
+typedef enum transfer_internal_error {
+    TRANSFER_INTERNAL_ERROR_NONE,
+    TRANSFER_INTERNAL_ERROR_PTHREAD_CANNOT_CREATE,
+} transfer_internal_error;
+
+typedef enum transfer_error_type {
+    TRANSFER_ERROR_TYPE_INTERNAL,
+    TRANSFER_ERROR_TYPE_VULKAN,
+} transfer_error_type;
+
+typedef struct transfer_error {
+    transfer_error_type     type;
+    transfer_internal_error internal_error;
+    VkResult                vk_error;
+} transfer_error;
+
+typedef void (*transfer_error_callback)(transfer_error);
+
 typedef struct transfer_engine {
-    VkDevice               vk_device;
-    VkQueue                vk_queue;
-    transfer_command_pool  command_pool;
-    transfer_request_queue request_queue;
+    VkDevice                vk_device;
+    VkQueue                 vk_queue;
+    transfer_command_pool   command_pool;
+    transfer_request_queue  request_queue;
+    transfer_error_callback error_callback;
 
     pthread_t worker_thread;
 
     atomic_bool should_close;
 } transfer_engine;
+
+void transfer_engine_deinit(transfer_engine* engine);

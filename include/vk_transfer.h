@@ -32,16 +32,14 @@ typedef struct transfer_error {
 } transfer_error;
 
 typedef enum transfer_status {
-    TRANSFER_STATUS_IN_FLIGHT,
+    TRANSFER_STATUS_READY,
+    TRANSFER_STATUS_PENDING,
+    TRANSFER_STATUS_EXECUTING,
     TRANSFER_STATUS_COMPLETE,
     TRANSFER_STATUS_ERROR,
 } transfer_status;
 
-typedef struct transfer_handle {
-    _Atomic transfer_status status;
-    transfer_error          error;
-    VkFence                 vk_fence;
-} transfer_handle;
+typedef struct transfer_handle transfer_handle;
 
 typedef struct buffer_to_buffer_request {
     transfer_handle* handle;
@@ -83,7 +81,15 @@ typedef struct transfer_engine {
 } transfer_engine;
 
 b8 transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_queue_family, transfer_error* error);
-}
+
+void transfer_engine_copy_buffer_to_buffer(transfer_engine* engine, const buffer_to_buffer_request* buffer_transfer);
+
 void transfer_engine_deinit(transfer_engine* engine);
 
-transfer_status transfer_engine_get_transfer_status(const transfer_engine* engine, transfer_handle* handle);
+transfer_handle* transfer_handle_create();
+
+transfer_status transfer_handle_status(const transfer_engine* engine, transfer_handle* handle);
+
+void transfer_handle_reset(transfer_handle* handle);
+
+void transfer_handle_destroy(transfer_handle* handle);

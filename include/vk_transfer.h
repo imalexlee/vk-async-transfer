@@ -45,13 +45,18 @@ typedef struct buffer_to_buffer_request {
     transfer_handle* handle;
     VkBuffer         src;
     VkBuffer         dst;
+    // Optional. Value of 0 indicates safest but possibly the slowest barriers
+    VkAccessFlags        dst_access_mask;
+    VkPipelineStageFlags dst_stage_mask;
 } buffer_to_buffer_request;
 
 typedef struct transfer_request {
-    transfer_handle*  handle;
-    transfer_location src;
-    transfer_location dst;
-    transfer_type     type;
+    transfer_handle*     handle;
+    transfer_location    src;
+    transfer_location    dst;
+    transfer_type        type;
+    VkAccessFlags        dst_access_mask;
+    VkPipelineStageFlags dst_stage_mask;
 } transfer_request;
 
 typedef struct transfer_request_queue {

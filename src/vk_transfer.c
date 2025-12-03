@@ -1,4 +1,3 @@
-
 #include "vk_transfer.h"
 
 typedef struct transfer_handle {
@@ -44,6 +43,7 @@ static void enqueue_request(transfer_engine* engine, const transfer_request* req
     queue->queue[queue->back] = *request;
     queue->back               = (queue->back + 1) % QUEUE_ENTRIES_COUNT;
     if (request->handle) {
+        request->handle->vk_fence = VK_NULL_HANDLE;
         atomic_store(&request->handle->status, TRANSFER_STATUS_PENDING);
     }
 
@@ -92,6 +92,30 @@ static void transfer_buffer_to_buffer(VkCommandBuffer cmd, const transfer_reques
         .dstOffset = 0,
         .size      = VK_WHOLE_SIZE,
     };
+
+    VkAccessFlags dst_access = transfer_request->dst_access_mask;
+    if (dst_access == 0) {
+        dst_access = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    }
+
+    VkPipelineStageFlags dst_stage = transfer_request->dst_stage_mask;
+    if (dst_stage == 0) {
+        dst_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    }
+
+    VkBufferMemoryBarrier buffer_memory_barrier = {
+        .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        .pNext               = NULL,
+        .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .dstAccessMask       = dst_access,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer              = transfer_request->dst.buffer,
+        .offset              = 0,
+        .size                = VK_WHOLE_SIZE,
+    };
+
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, dst_stage, 0, 0, NULL, 1, &buffer_memory_barrier, 0, NULL);
 
     vkCmdCopyBuffer(cmd, transfer_request->src.buffer, transfer_request->dst.buffer, 1, &buffer_copy);
 }
@@ -181,6 +205,8 @@ static void* worker(void* arg) {
 }
 
 b8 transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_queue_family, transfer_error* error) {
+    assert(engine);
+    assert(device != VK_NULL_HANDLE);
 
     atomic_store(&engine->should_close, false);
 
@@ -288,10 +314,12 @@ void transfer_engine_deinit(transfer_engine* engine) {
 
 void transfer_engine_copy_buffer_to_buffer(transfer_engine* engine, const buffer_to_buffer_request* buffer_transfer) {
     transfer_request transfer_request = {
-        .handle = buffer_transfer->handle,
-        .src    = buffer_transfer->src,
-        .dst    = buffer_transfer->dst,
-        .type   = TRANSFER_TYPE_BUFFER_TO_BUFFER,
+        .handle          = buffer_transfer->handle,
+        .src             = buffer_transfer->src,
+        .dst             = buffer_transfer->dst,
+        .type            = TRANSFER_TYPE_BUFFER_TO_BUFFER,
+        .dst_access_mask = buffer_transfer->dst_access_mask,
+        .dst_stage_mask  = buffer_transfer->dst_stage_mask,
     };
 
     enqueue_request(engine, &transfer_request);

@@ -6,25 +6,33 @@
 #include <stdbool.h>
 #include <vulkan/vulkan.h>
 
-static void trigger_err_callback_vulkan(transfer_engine* engine, VkResult vk_error) {
-    transfer_engine_deinit(engine);
-    if (engine->error_callback != NULL) {
-        transfer_error error;
-        error.type           = TRANSFER_ERROR_TYPE_VULKAN;
-        error.internal_error = TRANSFER_INTERNAL_ERROR_NONE;
-        error.vk_error       = vk_error;
-        engine->error_callback(error);
+static transfer_error fill_vulkan_err(VkResult vk_error) {
+    transfer_error err;
+    err.type           = TRANSFER_ERROR_TYPE_VULKAN;
+    err.vk_error       = vk_error;
+    err.internal_error = TRANSFER_INTERNAL_ERROR_NONE;
+    return err;
+}
+
+static transfer_error fill_internal_err(transfer_internal_error internal_error) {
+    transfer_error err;
+    err.type           = TRANSFER_ERROR_TYPE_VULKAN;
+    err.vk_error       = VK_SUCCESS;
+    err.internal_error = internal_error;
+    return err;
+}
+
+static void fill_handle_error_vulkan(transfer_handle* handle, VkResult vk_error) {
+    if (handle) {
+        handle->error = fill_vulkan_err(vk_error);
+        atomic_store(&handle->status, TRANSFER_STATUS_ERROR);
     }
 }
 
-static void trigger_err_callback_internal(transfer_engine* engine, transfer_internal_error internal_error) {
-    transfer_engine_deinit(engine);
-    if (engine->error_callback != NULL) {
-        transfer_error error;
-        error.type           = TRANSFER_ERROR_TYPE_INTERNAL;
-        error.internal_error = internal_error;
-        error.vk_error       = VK_SUCCESS;
-        engine->error_callback(error);
+static void fill_handle_error_internal(transfer_handle* handle, transfer_internal_error internal_error) {
+    if (handle) {
+        handle->error = fill_internal_err(internal_error);
+        atomic_store(&handle->status, TRANSFER_STATUS_ERROR);
     }
 }
 
@@ -57,23 +65,22 @@ static transfer_request dequeue_request(transfer_engine* engine) {
     return curr_request;
 }
 
-static i32 get_available_command_buffer_idx(transfer_engine* engine) {
+static VkResult get_available_command_buffer_idx(const transfer_engine* engine, i32* cmd_idx) {
     i32 i = 0;
     while (1) {
         VkResult vk_res = vkGetFenceStatus(engine->vk_device, engine->command_pool.fences[i]);
         if (vk_res == VK_SUCCESS) {
-            // current fence is signaled and ready
-            break;
+            *cmd_idx = i;
+            return VK_SUCCESS;
         }
         if (vk_res == VK_NOT_READY) {
             i = (i + 1) % CMD_BUF_COUNT;
             continue;
         }
 
-        trigger_err_callback_vulkan(engine, vk_res);
+        cmd_idx = NULL;
+        return vk_res;
     }
-
-    return i;
 }
 
 static void transfer_buffer_to_buffer(VkCommandBuffer cmd, const transfer_request* transfer_request) {
@@ -85,7 +92,7 @@ static void transfer_buffer_to_buffer(VkCommandBuffer cmd, const transfer_reques
     vkCmdCopyBuffer(cmd, transfer_request->src.buffer, transfer_request->dst.buffer, 1, &buffer_copy);
 }
 
-void* worker(void* arg) {
+static void* worker(void* arg) {
     transfer_engine* engine = arg;
 
     while (!atomic_load(&engine->should_close)) {
@@ -95,17 +102,36 @@ void* worker(void* arg) {
             break;
         }
 
-        i32 cmd_idx = get_available_command_buffer_idx(engine);
+        i32      cmd_idx;
+        VkResult vk_res = get_available_command_buffer_idx(engine, &cmd_idx);
+
+        if (vk_res != VK_SUCCESS) {
+            fill_handle_error_vulkan(req.handle, vk_res);
+            break;
+        }
 
         VkFence         fence = engine->command_pool.fences[cmd_idx];
         VkCommandBuffer cmd   = engine->command_pool.buffers[cmd_idx];
 
-        vkResetFences(engine->vk_device, 1, &fence);
+        if (req.handle) {
+            atomic_store(&req.handle->vk_fence, fence);
+        }
+
+        vk_res = vkResetFences(engine->vk_device, 1, &fence);
+
+        if (vk_res != VK_SUCCESS) {
+            fill_handle_error_vulkan(req.handle, vk_res);
+            break;
+        }
 
         VkCommandBufferBeginInfo cmd_buf_bi;
         cmd_buf_bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-        vkBeginCommandBuffer(cmd, &cmd_buf_bi);
+        vk_res = vkBeginCommandBuffer(cmd, &cmd_buf_bi);
+        if (vk_res != VK_SUCCESS) {
+            fill_handle_error_vulkan(req.handle, vk_res);
+            break;
+        }
 
         switch (req.type) {
         case TRANSFER_TYPE_BUFFER_TO_BUFFER:
@@ -116,21 +142,30 @@ void* worker(void* arg) {
             assert(0 && "unhandled transfer type");
         }
 
-        vkEndCommandBuffer(cmd);
+        vk_res = vkEndCommandBuffer(cmd);
+
+        if (vk_res != VK_SUCCESS) {
+            fill_handle_error_vulkan(req.handle, vk_res);
+            break;
+        }
 
         VkSubmitInfo submit_info;
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers    = &cmd;
 
-        vkQueueSubmit(engine->vk_queue, 1, &submit_info, fence);
+        vk_res = vkQueueSubmit(engine->vk_queue, 1, &submit_info, fence);
+
+        if (vk_res != VK_SUCCESS) {
+            fill_handle_error_vulkan(req.handle, vk_res);
+            break;
+        }
     }
 
     return NULL;
 }
 
-void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_queue_family, const transfer_error_callback* error_callback) {
+b8 transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_queue_family, transfer_error* error) {
 
-    engine->error_callback = *error_callback;
     atomic_store(&engine->should_close, false);
 
     VkCommandPoolCreateInfo pool_ci;
@@ -143,7 +178,11 @@ void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer
     vk_res = vkCreateCommandPool(device, &pool_ci, NULL, &engine->command_pool.pool);
 
     if (vk_res != VK_SUCCESS) {
-        trigger_err_callback_vulkan(engine, vk_res);
+        if (error) {
+            *error = fill_vulkan_err(vk_res);
+        }
+        transfer_engine_deinit(engine);
+        return false;
     }
 
     VkCommandBufferAllocateInfo command_buffer_ai;
@@ -155,7 +194,11 @@ void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer
     vk_res = vkAllocateCommandBuffers(device, &command_buffer_ai, engine->command_pool.buffers);
 
     if (vk_res != VK_SUCCESS) {
-        trigger_err_callback_vulkan(engine, vk_res);
+        if (error) {
+            *error = fill_vulkan_err(vk_res);
+        }
+        transfer_engine_deinit(engine);
+        return false;
     }
 
     vkGetDeviceQueue(device, transfer_queue_family, 0, &engine->vk_queue);
@@ -168,7 +211,11 @@ void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer
         vk_res = vkCreateFence(device, &fence_ci, NULL, &engine->command_pool.fences[i]);
 
         if (vk_res != VK_SUCCESS) {
-            trigger_err_callback_vulkan(engine, vk_res);
+            if (error) {
+                *error = fill_vulkan_err(vk_res);
+            }
+            transfer_engine_deinit(engine);
+            return false;
         }
     }
 
@@ -182,9 +229,22 @@ void transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer
     pthread_res = pthread_cond_init(&engine->request_queue.worker_notify_cond, NULL);
     pthread_res = pthread_mutex_init(&engine->request_queue.mutex, NULL);
 
-    if (pthread_res != 0) {
-        trigger_err_callback_internal(engine, TRANSFER_INTERNAL_ERROR_PTHREAD_CANNOT_CREATE);
+    if (vk_res != VK_SUCCESS) {
+        if (error) {
+            *error = fill_vulkan_err(vk_res);
+        }
+        transfer_engine_deinit(engine);
+        return false;
     }
+    if (pthread_res != 0) {
+        if (error) {
+            *error = fill_internal_err(TRANSFER_INTERNAL_ERROR_PTHREAD_CANNOT_CREATE);
+        }
+        transfer_engine_deinit(engine);
+        return false;
+    }
+
+    return true;
 }
 
 void transfer_engine_deinit(transfer_engine* engine) {
@@ -211,6 +271,45 @@ void transfer_engine_copy_buffer_to_buffer(transfer_engine* engine, const buffer
     transfer_request.type       = TRANSFER_TYPE_BUFFER_TO_BUFFER;
     transfer_request.src.buffer = buffer_transfer->src;
     transfer_request.dst.buffer = buffer_transfer->dst;
+    if (buffer_transfer->handle) {
+        transfer_error default_err = {0};
+        default_err.type           = TRANSFER_ERROR_TYPE_NONE;
+
+        atomic_store(&buffer_transfer->handle->vk_fence, VK_NULL_HANDLE);
+        atomic_store(&buffer_transfer->handle->error, default_err);
+        transfer_request.handle = buffer_transfer->handle;
+    } else {
+        transfer_request.handle = NULL;
+    }
 
     enqueue_request(engine, &transfer_request);
+}
+
+transfer_status transfer_engine_get_transfer_status(const transfer_engine* engine, transfer_handle* handle) {
+    assert(handle);
+
+    transfer_status status = atomic_load(&handle->status);
+
+    if (status == TRANSFER_STATUS_ERROR || status == TRANSFER_STATUS_COMPLETE) {
+        return status;
+    }
+
+    if (handle->vk_fence != VK_NULL_HANDLE) {
+        VkResult vk_res = vkGetFenceStatus(engine->vk_device, handle->vk_fence);
+        switch (vk_res) {
+        case VK_SUCCESS: {
+            atomic_store(&handle->status, TRANSFER_STATUS_COMPLETE);
+            return TRANSFER_STATUS_COMPLETE;
+        }
+        case VK_NOT_READY: {
+            atomic_store(&handle->status, TRANSFER_STATUS_IN_FLIGHT);
+            return TRANSFER_STATUS_IN_FLIGHT;
+        }
+        default:
+            fill_handle_error_vulkan(handle, vk_res);
+            return TRANSFER_STATUS_ERROR;
+        }
+    }
+
+    return TRANSFER_STATUS_IN_FLIGHT;
 }

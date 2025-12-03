@@ -14,16 +14,47 @@ typedef union transfer_location {
     VkImage  image;
 } transfer_location;
 
+typedef enum transfer_internal_error {
+    TRANSFER_INTERNAL_ERROR_NONE,
+    TRANSFER_INTERNAL_ERROR_PTHREAD_CANNOT_CREATE,
+} transfer_internal_error;
+
+typedef enum transfer_error_type {
+    TRANSFER_ERROR_TYPE_NONE,
+    TRANSFER_ERROR_TYPE_INTERNAL,
+    TRANSFER_ERROR_TYPE_VULKAN,
+} transfer_error_type;
+
+typedef struct transfer_error {
+    transfer_error_type     type;
+    transfer_internal_error internal_error;
+    VkResult                vk_error;
+} transfer_error;
+
+typedef enum transfer_status {
+    TRANSFER_STATUS_IN_FLIGHT,
+    TRANSFER_STATUS_COMPLETE,
+    TRANSFER_STATUS_ERROR,
+} transfer_status;
+
+typedef struct transfer_handle {
+    _Atomic transfer_status status;
+    transfer_error          error;
+    VkFence                 vk_fence;
+} transfer_handle;
+
+typedef struct buffer_to_buffer_request {
+    transfer_handle* handle;
+    VkBuffer         src;
+    VkBuffer         dst;
+} buffer_to_buffer_request;
+
 typedef struct transfer_request {
+    transfer_handle*  handle;
     transfer_location src;
     transfer_location dst;
     transfer_type     type;
 } transfer_request;
-
-typedef struct buffer_to_buffer_request {
-    VkBuffer src;
-    VkBuffer dst;
-} buffer_to_buffer_request;
 
 typedef struct transfer_request_queue {
     i32              front;
@@ -40,34 +71,19 @@ typedef struct transfer_command_pool {
     VkFence         fences[CMD_BUF_COUNT];
 } transfer_command_pool;
 
-typedef enum transfer_internal_error {
-    TRANSFER_INTERNAL_ERROR_NONE,
-    TRANSFER_INTERNAL_ERROR_PTHREAD_CANNOT_CREATE,
-} transfer_internal_error;
-
-typedef enum transfer_error_type {
-    TRANSFER_ERROR_TYPE_INTERNAL,
-    TRANSFER_ERROR_TYPE_VULKAN,
-} transfer_error_type;
-
-typedef struct transfer_error {
-    transfer_error_type     type;
-    transfer_internal_error internal_error;
-    VkResult                vk_error;
-} transfer_error;
-
-typedef void (*transfer_error_callback)(transfer_error);
-
 typedef struct transfer_engine {
-    VkDevice                vk_device;
-    VkQueue                 vk_queue;
-    transfer_command_pool   command_pool;
-    transfer_request_queue  request_queue;
-    transfer_error_callback error_callback;
+    VkDevice               vk_device;
+    VkQueue                vk_queue;
+    transfer_command_pool  command_pool;
+    transfer_request_queue request_queue;
 
     pthread_t worker_thread;
 
     atomic_bool should_close;
 } transfer_engine;
 
+b8 transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_queue_family, transfer_error* error);
+}
 void transfer_engine_deinit(transfer_engine* engine);
+
+transfer_status transfer_engine_get_transfer_status(const transfer_engine* engine, transfer_handle* handle);

@@ -6,9 +6,9 @@
 typedef struct d_queue {
     void* memory;
     u32   element_size;
-    // how many elements currently in the queue
+    // number of elements currently in the queue
     u32 count;
-    // how many elements queue has space for
+    // number of elements the queue has space for (not bytes)
     u32 capacity;
 
     u32 back;

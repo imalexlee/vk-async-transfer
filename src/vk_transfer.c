@@ -1,10 +1,10 @@
 #include "vk_transfer.h"
 
-typedef struct transfer_handle {
+typedef struct transfer_handle_t {
     _Atomic transfer_status status;
     transfer_error          error;
     VkFence                 vk_fence;
-} transfer_handle;
+} transfer_handle_t;
 
 static transfer_error fill_vulkan_err(VkResult vk_error) {
     transfer_error err;
@@ -22,14 +22,14 @@ static transfer_error fill_internal_err(transfer_internal_error internal_error) 
     return err;
 }
 
-static void fill_handle_error_vulkan(transfer_handle* handle, VkResult vk_error) {
+static void fill_handle_error_vulkan(transfer_handle handle, VkResult vk_error) {
     if (handle) {
         handle->error = fill_vulkan_err(vk_error);
         atomic_store(&handle->status, TRANSFER_STATUS_ERROR);
     }
 }
 
-static void fill_handle_error_internal(transfer_handle* handle, transfer_internal_error internal_error) {
+static void fill_handle_error_internal(transfer_handle handle, transfer_internal_error internal_error) {
     if (handle) {
         handle->error = fill_internal_err(internal_error);
         atomic_store(&handle->status, TRANSFER_STATUS_ERROR);
@@ -275,8 +275,6 @@ b8 transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_q
         }
     }
 
-    //    engine->request_queue.front = 0;
-    //   engine->request_queue.back  = 0;
     d_queue_create(&engine->request_queue.queue, sizeof(transfer_request));
 
     engine->vk_device = device;
@@ -338,31 +336,36 @@ void transfer_engine_copy_buffer_to_buffer(transfer_engine* engine, const buffer
     enqueue_request(engine, &transfer_request);
 }
 
-transfer_status transfer_handle_status(const transfer_engine* engine, transfer_handle* handle) {
-    assert(handle);
+void transfer_handle_status(const transfer_engine* engine, transfer_handle handle, transfer_status* status) {
+    if (!engine || !handle || !status) {
+        return;
+    }
 
-    transfer_status status = atomic_load(&handle->status);
+    transfer_status handle_status = atomic_load(&handle->status);
 
-    if (status != TRANSFER_STATUS_EXECUTING) {
-        return status;
+    if (handle_status != TRANSFER_STATUS_EXECUTING) {
+        *status = handle_status;
+        return;
     }
 
     VkResult vk_res = vkGetFenceStatus(engine->vk_device, handle->vk_fence);
     switch (vk_res) {
     case VK_SUCCESS: {
         atomic_store(&handle->status, TRANSFER_STATUS_COMPLETE);
-        return TRANSFER_STATUS_COMPLETE;
+        *status = TRANSFER_STATUS_COMPLETE;
+        return;
     }
     case VK_NOT_READY: {
-        return TRANSFER_STATUS_EXECUTING;
+        *status = TRANSFER_STATUS_EXECUTING;
+        return;
     }
     default:
         fill_handle_error_vulkan(handle, vk_res);
-        return TRANSFER_STATUS_ERROR;
+        *status = TRANSFER_STATUS_ERROR;
     }
 }
 
-void transfer_handle_reset(transfer_handle* handle) {
+void transfer_handle_reset(transfer_handle handle) {
     if (!handle) {
         return;
     }
@@ -378,19 +381,22 @@ void transfer_handle_reset(transfer_handle* handle) {
     atomic_store(&handle->status, TRANSFER_STATUS_READY);
 }
 
-transfer_handle* transfer_handle_create() {
+void transfer_handle_create(transfer_handle* handle) {
     // TODO: add pooling strategy to avoid calloc
-    transfer_handle* handle = calloc(1, sizeof(transfer_handle));
     if (!handle) {
-        return NULL;
+        return;
     }
 
-    transfer_handle_reset(handle);
+    *handle = calloc(1, sizeof(transfer_handle));
 
-    return handle;
+    if (!*handle) {
+        return;
+    }
+
+    transfer_handle_reset(*handle);
 }
 
-void transfer_handle_destroy(transfer_handle* handle) {
+void transfer_handle_destroy(transfer_handle handle) {
     // TODO: add pooling strategy to avoid free
     if (!handle) {
         return;

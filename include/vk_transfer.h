@@ -41,19 +41,19 @@ typedef enum transfer_status {
     TRANSFER_STATUS_ERROR,
 } transfer_status;
 
-typedef struct transfer_handle transfer_handle;
+typedef struct transfer_handle_t* transfer_handle;
 
 typedef struct buffer_to_buffer_request {
-    transfer_handle* handle;
-    VkBuffer         src;
-    VkBuffer         dst;
+    transfer_handle handle;
+    VkBuffer        src;
+    VkBuffer        dst;
     // Optional. Value of 0 indicates safest but possibly the slowest barriers
     VkAccessFlags        dst_access_mask;
     VkPipelineStageFlags dst_stage_mask;
 } buffer_to_buffer_request;
 
 typedef struct transfer_request {
-    transfer_handle*     handle;
+    transfer_handle      handle;
     transfer_location    src;
     transfer_location    dst;
     transfer_type        type;
@@ -62,11 +62,6 @@ typedef struct transfer_request {
 } transfer_request;
 
 typedef struct transfer_request_queue {
-    /*
-    i32              front;
-    i32              back;
-    transfer_request queue[QUEUE_ENTRIES_COUNT];
-    */
     d_queue         queue;
     pthread_cond_t  worker_notify_cond;
     pthread_mutex_t mutex;
@@ -95,10 +90,10 @@ void transfer_engine_copy_buffer_to_buffer(transfer_engine* engine, const buffer
 
 void transfer_engine_deinit(transfer_engine* engine);
 
-transfer_handle* transfer_handle_create();
+void transfer_handle_create(transfer_handle* handle);
 
-transfer_status transfer_handle_status(const transfer_engine* engine, transfer_handle* handle);
+void transfer_handle_status(const transfer_engine* engine, transfer_handle handle, transfer_status* status);
 
-void transfer_handle_reset(transfer_handle* handle);
+void transfer_handle_reset(transfer_handle handle);
 
-void transfer_handle_destroy(transfer_handle* handle);
+void transfer_handle_destroy(transfer_handle handle);

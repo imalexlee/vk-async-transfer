@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.h"
+#include "queue.h"
 
 #define CMD_BUF_COUNT 5
 #define QUEUE_ENTRIES_COUNT 100
@@ -17,6 +18,7 @@ typedef union transfer_location {
 typedef enum transfer_internal_error {
     TRANSFER_INTERNAL_ERROR_NONE,
     TRANSFER_INTERNAL_ERROR_PTHREAD_CANNOT_CREATE,
+    TRANSFER_INTERNAL_ERROR_CANT_POP_REQUEST,
 } transfer_internal_error;
 
 typedef enum transfer_error_type {
@@ -60,10 +62,12 @@ typedef struct transfer_request {
 } transfer_request;
 
 typedef struct transfer_request_queue {
+    /*
     i32              front;
     i32              back;
     transfer_request queue[QUEUE_ENTRIES_COUNT];
-
+    */
+    d_queue         queue;
     pthread_cond_t  worker_notify_cond;
     pthread_mutex_t mutex;
 } transfer_request_queue;

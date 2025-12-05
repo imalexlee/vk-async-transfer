@@ -15,7 +15,7 @@ typedef struct d_queue {
     u32 front;
 } d_queue;
 
-b8 d_queue_create(d_queue* queue, u32 element_size);
+b8 d_queue_create(d_queue* queue, u32 element_size, u32 initial_capacity);
 
 b8 d_queue_push(d_queue* queue, const void* element);
 

@@ -1,9 +1,6 @@
-#include "queue.h"
+#include "d_queue.h"
 
-#include <string.h>
-
-static b8 d_queue_resize(d_queue* queue, u32 new_capacity) {
-
+static b8 d_queue_reserve(d_queue* queue, u32 new_capacity) {
     void* temp = malloc(queue->element_size * new_capacity);
     if (!temp) {
         return false;
@@ -31,14 +28,12 @@ static b8 d_queue_resize(d_queue* queue, u32 new_capacity) {
     return true;
 }
 
-b8 d_queue_create(d_queue* queue, u32 element_size) {
-    if (!queue) {
-        return false;
-    }
+b8 d_queue_create(d_queue* queue, u32 element_size, u32 initial_capacity) {
+    assert(queue);
 
     queue->element_size = element_size;
 
-    if (!d_queue_resize(queue, 50)) {
+    if (!d_queue_reserve(queue, initial_capacity)) {
         return false;
     }
 
@@ -46,9 +41,7 @@ b8 d_queue_create(d_queue* queue, u32 element_size) {
 }
 
 void d_queue_destroy(d_queue* queue) {
-    if (!queue) {
-        return;
-    }
+    assert(queue);
 
     if (queue->memory) {
         free(queue->memory);
@@ -58,12 +51,11 @@ void d_queue_destroy(d_queue* queue) {
 }
 
 b8 d_queue_push(d_queue* queue, const void* element) {
-    if (!queue || !element) {
-        return false;
-    }
+    assert(queue);
+    assert(element);
 
     if (queue->count == queue->capacity) {
-        if (!d_queue_resize(queue, queue->capacity * 2)) {
+        if (!d_queue_reserve(queue, queue->capacity * 2)) {
             return false;
         }
     }
@@ -77,9 +69,8 @@ b8 d_queue_push(d_queue* queue, const void* element) {
 }
 
 b8 d_queue_pop(d_queue* queue, void* element) {
-    if (!queue || !element) {
-        return false;
-    }
+    assert(queue);
+    assert(element);
 
     if (queue->count == 0) {
         return false;

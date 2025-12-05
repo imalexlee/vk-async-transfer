@@ -1,7 +1,9 @@
 #pragma once
 
 #include "common.h"
-#include "queue.h"
+#include "d_queue.h"
+#include "d_array.h"
+#include "transfer_handle_pool.h"
 
 #define CMD_BUF_COUNT 5
 #define QUEUE_ENTRIES_COUNT 100
@@ -73,10 +75,12 @@ typedef struct transfer_command_pool {
     VkFence         fences[CMD_BUF_COUNT];
 } transfer_command_pool;
 
+
 typedef struct transfer_engine {
     VkDevice               vk_device;
     VkQueue                vk_queue;
     transfer_command_pool  command_pool;
+    transfer_handle_pool handle_pool;
     transfer_request_queue request_queue;
 
     pthread_t worker_thread;

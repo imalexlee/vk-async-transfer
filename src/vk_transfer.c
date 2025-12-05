@@ -275,7 +275,7 @@ b8 transfer_engine_init(transfer_engine* engine, VkDevice device, u32 transfer_q
         }
     }
 
-    d_queue_create(&engine->request_queue.queue, sizeof(transfer_request));
+    d_queue_create(&engine->request_queue.queue, sizeof(transfer_request), 50);
 
     engine->vk_device = device;
 
@@ -324,6 +324,8 @@ void transfer_engine_deinit(transfer_engine* engine) {
 }
 
 void transfer_engine_copy_buffer_to_buffer(transfer_engine* engine, const buffer_to_buffer_request* buffer_transfer) {
+    transfer_handle_reset(buffer_transfer->handle);
+
     transfer_request transfer_request = {
         .handle          = buffer_transfer->handle,
         .src             = buffer_transfer->src,
@@ -381,7 +383,7 @@ void transfer_handle_reset(transfer_handle handle) {
     atomic_store(&handle->status, TRANSFER_STATUS_READY);
 }
 
-void transfer_handle_create(transfer_handle* handle) {
+void transfer_handle_create( transfer_handle* handle) {
     // TODO: add pooling strategy to avoid calloc
     if (!handle) {
         return;

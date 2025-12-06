@@ -17,8 +17,8 @@ typedef struct d_queue {
 
 b8 d_queue_create(d_queue* queue, u32 element_size, u32 initial_capacity);
 
+void d_queue_destroy(d_queue* queue);
+
 b8 d_queue_push(d_queue* queue, const void* element);
 
 b8 d_queue_pop(d_queue* queue, void* element);
-
-void d_queue_destroy(d_queue* queue);

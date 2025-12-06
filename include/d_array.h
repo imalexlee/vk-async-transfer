@@ -12,8 +12,9 @@ typedef struct d_array {
     u32 capacity;
 } d_array;
 
-
 b8 d_array_create(d_array* array, u32 element_size, u32 initial_capacity);
+
+void d_array_destroy(d_array* array);
 
 b8 d_array_resize(d_array* array, u32 new_count);
 

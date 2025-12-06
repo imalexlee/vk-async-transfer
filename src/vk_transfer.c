@@ -1,6 +1,5 @@
 #include "vk_transfer.h"
 
-
 static transfer_error fill_vulkan_err(VkResult vk_error) {
     transfer_error err;
     err.type           = TRANSFER_ERROR_TYPE_VULKAN;
@@ -319,7 +318,8 @@ void transfer_engine_deinit(transfer_engine* engine) {
 }
 
 void transfer_engine_copy_buffer_to_buffer(transfer_engine* engine, const buffer_to_buffer_request* buffer_transfer) {
-    transfer_handle_reset(buffer_transfer->handle);
+    // transfer_handle_reset(buffer_transfer->handle);
+    transfer_handle_pool_reset_handle(&engine->handle_pool, *buffer_transfer->handle);
 
     transfer_request transfer_request = {
         .handle          = buffer_transfer->handle,
@@ -360,43 +360,4 @@ void transfer_handle_status(const transfer_engine* engine, transfer_handle handl
         fill_handle_error_vulkan(handle, vk_res);
         *status = TRANSFER_STATUS_ERROR;
     }
-}
-
-void transfer_handle_reset(transfer_handle handle) {
-    if (!handle) {
-        return;
-    }
-
-    transfer_error default_err = {
-        .type           = TRANSFER_ERROR_TYPE_NONE,
-        .internal_error = TRANSFER_INTERNAL_ERROR_NONE,
-        .vk_error       = VK_SUCCESS,
-    };
-
-    handle->error    = default_err;
-    handle->vk_fence = VK_NULL_HANDLE;
-    atomic_store(&handle->status, TRANSFER_STATUS_READY);
-}
-
-void transfer_handle_create( transfer_handle* handle) {
-    // TODO: add pooling strategy to avoid calloc
-    if (!handle) {
-        return;
-    }
-
-    *handle = calloc(1, sizeof(transfer_handle));
-
-    if (!*handle) {
-        return;
-    }
-
-    transfer_handle_reset(*handle);
-}
-
-void transfer_handle_destroy(transfer_handle handle) {
-    // TODO: add pooling strategy to avoid free
-    if (!handle) {
-        return;
-    };
-    free(handle);
 }

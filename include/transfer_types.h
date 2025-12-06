@@ -1,8 +1,8 @@
 #pragma once
 
 #include "common.h"
-#include "d_queue.h"
 #include "d_array.h"
+#include "d_queue.h"
 #include "transfer_handle_pool.h"
 
 #define CMD_BUF_COUNT 5
@@ -43,20 +43,20 @@ typedef enum transfer_status {
     TRANSFER_STATUS_ERROR,
 } transfer_status;
 
-//typedef struct transfer_handle_t* transfer_handle;
 typedef u32 transfer_handle;
 
 typedef struct buffer_to_buffer_request {
-    transfer_handle handle;
-    VkBuffer        src;
-    VkBuffer        dst;
-    // Optional. Value of 0 indicates safest but possibly the slowest barriers
+    VkBuffer src;
+    VkBuffer dst;
+    // Optional: pass handle if you care to check the status of this transfer. NULL otherwise
+    transfer_handle* handle;
+    // Optional: Value of 0 indicates safest but possibly the slowest barriers
     VkAccessFlags        dst_access_mask;
     VkPipelineStageFlags dst_stage_mask;
 } buffer_to_buffer_request;
 
 typedef struct transfer_request {
-    transfer_handle      handle;
+    transfer_handle*     handle;
     transfer_location    src;
     transfer_location    dst;
     transfer_type        type;
@@ -78,18 +78,17 @@ typedef struct transfer_command_pool {
 
 typedef struct transfer_handle_pool {
     d_array available_indices;
-    d_array handles;
+    d_array handle_slots;
 } transfer_handle_pool;
 
 typedef struct transfer_engine {
     VkDevice               vk_device;
     VkQueue                vk_queue;
     transfer_command_pool  command_pool;
-    transfer_handle_pool handle_pool;
+    transfer_handle_pool   handle_pool;
     transfer_request_queue request_queue;
 
     pthread_t worker_thread;
 
     atomic_bool should_close;
 } transfer_engine;
-

@@ -6,7 +6,7 @@ static b8 d_array_realloc(d_array* array, u32 new_capacity) {
         return false;
     }
 
-    array->memory = temp;
+    array->memory   = temp;
     array->capacity = new_capacity;
 
     return true;
@@ -14,7 +14,7 @@ static b8 d_array_realloc(d_array* array, u32 new_capacity) {
 
 b8 d_array_resize(d_array* array, u32 new_count) {
     if (array->capacity < new_count) {
-        if (!d_array_realloc(array, new_count)){
+        if (!d_array_realloc(array, new_count)) {
             return false;
         }
     }
@@ -23,11 +23,11 @@ b8 d_array_resize(d_array* array, u32 new_count) {
     return true;
 }
 
-b8 d_array_create(d_array* array, u32 element_size, u32 initial_capacity){
+b8 d_array_create(d_array* array, u32 element_size, u32 initial_capacity) {
     memset(array, 0, sizeof(d_array));
     array->element_size = element_size;
 
-    if (!d_array_realloc(array, initial_capacity)){
+    if (!d_array_realloc(array, initial_capacity)) {
         return false;
     }
 
@@ -55,7 +55,7 @@ b8 d_array_push_back(d_array* array, const void* value) {
     assert(value);
 
     if (array->count == array->capacity) {
-        if(!d_array_realloc(array, array->count * 2)) {
+        if (!d_array_realloc(array, array->count * 2)) {
             return false;
         }
     }
@@ -68,7 +68,7 @@ b8 d_array_push_back(d_array* array, const void* value) {
     return true;
 }
 
-b8 d_array_pop_back(d_array* array, void* value){
+b8 d_array_pop_back(d_array* array, void* value) {
     if (array->count == 0) {
         return false;
     }

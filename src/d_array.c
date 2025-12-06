@@ -1,24 +1,20 @@
 #include "d_array.h"
 
-b8 d_array_reserve(d_array* array, u32 new_capacity) {
-    void* temp = malloc(new_capacity * array->element_size);
+static b8 d_array_realloc(d_array* array, u32 new_capacity) {
+    void* temp = realloc(array->memory, new_capacity * array->element_size);
     if (!temp) {
         return false;
     }
 
-    if (array->memory){
-        memcpy(temp, array->memory, array->count * array->element_size);
-        free(array->memory);
-    }
-
     array->memory = temp;
     array->capacity = new_capacity;
+
     return true;
 }
 
 b8 d_array_resize(d_array* array, u32 new_count) {
     if (array->capacity < new_count) {
-        if (!d_array_reserve(array, new_count)){
+        if (!d_array_realloc(array, new_count)){
             return false;
         }
     }
@@ -28,9 +24,10 @@ b8 d_array_resize(d_array* array, u32 new_count) {
 }
 
 b8 d_array_create(d_array* array, u32 element_size, u32 initial_capacity){
+    memset(array, 0, sizeof(d_array));
     array->element_size = element_size;
 
-    if (!d_array_reserve(array, initial_capacity)){
+    if (!d_array_realloc(array, initial_capacity)){
         return false;
     }
 
@@ -40,27 +37,46 @@ b8 d_array_create(d_array* array, u32 element_size, u32 initial_capacity){
 void d_array_destroy(d_array* array) {
     assert(array);
 
-    if (array->memory) {
-        free(array->memory);
-    }
+    free(array->memory);
 
     memset(array, 0, sizeof(d_array));
 }
 
-void d_array_set_value(d_array* array, u32 index, const void* value) {
+void* d_array_at(d_array* array, u32 index) {
     assert(array);
-    assert(value);
     assert(index < array->count);
 
     u32 memory_pos = array->element_size * index;
-    memcpy(&array->memory[memory_pos], value, array->element_size);
+    return &array->memory[memory_pos];
 }
 
-void d_array_get_value(d_array* array, u32 index, void* value) {
+b8 d_array_push_back(d_array* array, const void* value) {
     assert(array);
     assert(value);
-    assert(index < array->count);
 
-    u32 memory_pos = array->element_size * index;
+    if (array->count == array->capacity) {
+        if(!d_array_realloc(array, array->count * 2)) {
+            return false;
+        }
+    }
+
+    u32 memory_pos = array->element_size * array->count;
+    memcpy(&array->memory[memory_pos], value, array->element_size);
+
+    array->count++;
+
+    return true;
+}
+
+b8 d_array_pop_back(d_array* array, void* value){
+    if (array->count == 0) {
+        return false;
+    }
+
+    array->count--;
+
+    u32 memory_pos = array->element_size * array->count;
     memcpy(value, &array->memory[memory_pos], array->element_size);
+
+    return true;
 }

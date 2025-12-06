@@ -1,10 +1,5 @@
 #include "vk_transfer.h"
 
-typedef struct transfer_handle_t {
-    _Atomic transfer_status status;
-    transfer_error          error;
-    VkFence                 vk_fence;
-} transfer_handle_t;
 
 static transfer_error fill_vulkan_err(VkResult vk_error) {
     transfer_error err;

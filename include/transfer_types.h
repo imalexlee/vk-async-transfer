@@ -3,10 +3,10 @@
 #include "common.h"
 #include "d_array.h"
 #include "d_queue.h"
-#include "transfer_handle_pool.h"
 
 #define CMD_BUF_COUNT 5
 #define QUEUE_ENTRIES_COUNT 100
+#define TRANSFER_HANDLE_INVALID UINT32_MAX
 
 typedef enum transfer_type {
     TRANSFER_TYPE_BUFFER_TO_BUFFER,
@@ -48,15 +48,16 @@ typedef u32 transfer_handle;
 typedef struct buffer_to_buffer_request {
     VkBuffer src;
     VkBuffer dst;
-    // Optional: pass handle if you care to check the status of this transfer. NULL otherwise
-    transfer_handle* handle;
     // Optional: Value of 0 indicates safest but possibly the slowest barriers
     VkAccessFlags        dst_access_mask;
     VkPipelineStageFlags dst_stage_mask;
+    // Optional: pass handle if you care to check the status of this transfer.
+    // Pass TRANSFER_HANDLE_INVALID to ignore
+    transfer_handle handle;
 } buffer_to_buffer_request;
 
 typedef struct transfer_request {
-    transfer_handle*     handle;
+    transfer_handle      handle;
     transfer_location    src;
     transfer_location    dst;
     transfer_type        type;
@@ -71,10 +72,17 @@ typedef struct transfer_request_queue {
 } transfer_request_queue;
 
 typedef struct transfer_command_pool {
-    VkCommandPool   pool;
-    VkCommandBuffer buffers[CMD_BUF_COUNT];
-    VkFence         fences[CMD_BUF_COUNT];
+    VkCommandPool        pool;
+    VkCommandBuffer      buffers[CMD_BUF_COUNT];
+    VkFence              fences[CMD_BUF_COUNT];
+    atomic_uint_fast64_t fence_generations[CMD_BUF_COUNT];
 } transfer_command_pool;
+
+typedef struct transfer_handle_fence_ref {
+    VkFence vk_fence;
+    u64     fence_generation;
+    u32     fence_idx;
+} transfer_handle_fence_ref;
 
 typedef struct transfer_handle_pool {
     d_array available_indices;

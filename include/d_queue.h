@@ -2,7 +2,7 @@
 
 #include "common.h"
 
-// dynamic queue
+// fixed, dynamically allocated queue
 typedef struct d_queue {
     void* memory;
     u32   element_size;
@@ -15,7 +15,7 @@ typedef struct d_queue {
     u32 front;
 } d_queue;
 
-b8 d_queue_create(d_queue* queue, u32 element_size, u32 initial_capacity);
+b8 d_queue_create(d_queue* queue, u32 element_size, u32 capacity);
 
 void d_queue_destroy(d_queue* queue);
 

@@ -1,22 +1,31 @@
 #include "vk_transfer.h"
 #include "transfer_handle_pool.h"
 
-static transfer_error fill_vulkan_err(VkResult vk_error) {
-    transfer_error err;
-    err.type           = TRANSFER_ERROR_TYPE_VULKAN;
-    err.vk_error       = vk_error;
-    err.internal_error = TRANSFER_INTERNAL_ERROR_NONE;
-    return err;
+static vkt_error fill_vulkan_err(VkResult vk_error) {
+    return {
+        .type           = VKT_ERROR_TYPE_VULKAN,
+        .internal_error = VKT_INTERNAL_ERROR_NONE,
+        .vk_error       = vk_error,
+    };
 }
 
-static transfer_error fill_internal_err(transfer_internal_error internal_error) {
-    transfer_error err;
-    err.type           = TRANSFER_ERROR_TYPE_INTERNAL;
-    err.vk_error       = VK_SUCCESS;
-    err.internal_error = internal_error;
-    return err;
+static vkt_error fill_internal_err(vkt_internal_error internal_error) {
+    return {
+        .type           = VKT_ERROR_TYPE_INTERNAL,
+        .internal_error = internal_error,
+        .vk_error       = VK_SUCCESS,
+    };
 }
 
+static vkt_error fill_success_err() {
+    return {
+        .type           = VKT_ERROR_TYPE_NONE,
+        .internal_error = VKT_INTERNAL_ERROR_NONE,
+        .vk_error       = VK_SUCCESS,
+    };
+}
+
+/*
 static b8 enqueue_request(transfer_engine* engine, const transfer_request* request) {
     assert(request);
 
@@ -355,4 +364,57 @@ b8 _transfer_handle_pool_get_handle_status(transfer_engine* engine, transfer_han
     }
 
     return true;
+}
+*/
+
+vkt_error vkt_init(vkt* vk_transfer, VkDevice device, u32 transfer_queue_family) {
+    assert(vk_transfer);
+    assert(device != VK_NULL_HANDLE);
+
+    VkCommandPoolCreateInfo pool_ci = {
+        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .pNext            = NULL,
+        .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = transfer_queue_family,
+    };
+
+    VkResult vk_res = vkCreateCommandPool(device, &pool_ci, NULL, &vk_transfer->cmd.vk_cmd_pool);
+
+    if (vk_res != VK_SUCCESS) {
+        return fill_vulkan_err(vk_res);
+    }
+
+    VkCommandBufferAllocateInfo command_buffer_ai = {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext              = NULL,
+        .commandPool        = vk_transfer->cmd.vk_cmd_pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+
+    vk_res = vkAllocateCommandBuffers(device, &command_buffer_ai, &vk_transfer->cmd.vk_cmd_buf);
+
+    if (vk_res != VK_SUCCESS) {
+        return fill_vulkan_err(vk_res);
+    }
+
+    vkGetDeviceQueue(device, transfer_queue_family, 0, &vk_transfer->vk_queue);
+
+    VkFenceCreateInfo fence_ci = {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .pNext = NULL,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+    };
+
+    vk_res = vkCreateFence(device, &fence_ci, NULL, &vk_transfer->cmd.vk_fence);
+
+    if (vk_res != VK_SUCCESS) {
+        return fill_vulkan_err(vk_res);
+    }
+
+    vk_transfer->vk_device = device;
+
+    d_queue_create(&vk_transfer->transfer_batch_queue, sizeof(transfer_batch), MAX_BATCHES);
+
+    return fill_success_err();
 }

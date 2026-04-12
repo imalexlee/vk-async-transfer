@@ -2,7 +2,7 @@
 #include "transfer_handle_pool.h"
 
 static vkt_error fill_vulkan_err(VkResult vk_error) {
-    return {
+    return (vkt_error){
         .type           = VKT_ERROR_TYPE_VULKAN,
         .internal_error = VKT_INTERNAL_ERROR_NONE,
         .vk_error       = vk_error,
@@ -10,7 +10,7 @@ static vkt_error fill_vulkan_err(VkResult vk_error) {
 }
 
 static vkt_error fill_internal_err(vkt_internal_error internal_error) {
-    return {
+    return (vkt_error){
         .type           = VKT_ERROR_TYPE_INTERNAL,
         .internal_error = internal_error,
         .vk_error       = VK_SUCCESS,
@@ -18,7 +18,7 @@ static vkt_error fill_internal_err(vkt_internal_error internal_error) {
 }
 
 static vkt_error fill_success_err() {
-    return {
+    return (vkt_error){
         .type           = VKT_ERROR_TYPE_NONE,
         .internal_error = VKT_INTERNAL_ERROR_NONE,
         .vk_error       = VK_SUCCESS,
@@ -367,7 +367,7 @@ b8 _transfer_handle_pool_get_handle_status(transfer_engine* engine, transfer_han
 }
 */
 
-vkt_error vkt_init(vkt* vk_transfer, VkDevice device, u32 transfer_queue_family) {
+vkt_error vkt_create(vkt* vk_transfer, VkDevice device, u32 transfer_queue_family) {
     assert(vk_transfer);
     assert(device != VK_NULL_HANDLE);
 
@@ -415,6 +415,46 @@ vkt_error vkt_init(vkt* vk_transfer, VkDevice device, u32 transfer_queue_family)
     vk_transfer->vk_device = device;
 
     d_queue_create(&vk_transfer->transfer_batch_queue, sizeof(transfer_batch), MAX_BATCHES);
+
+    return fill_success_err();
+}
+
+void vkt_destroy(vkt* vk_transfer) {}
+
+vkt_error vkt_begin_transfer_batch(vkt* vk_transfer) {
+    // create a new transfer batch request and push to the end
+
+    transfer_batch new_batch = {};
+
+    if (!d_queue_push(&vk_transfer->transfer_batch_queue, &new_batch)) {
+        return fill_internal_err(VKT_INTERNAL_ERROR_BATCH_QUEUE_FULL);
+    }
+
+    return fill_success_err();
+}
+
+vkt_error vkt_submit_transfer(vkt* vk_transfer, const transfer_request* transfer) {
+    transfer_batch* batch;
+    if (!d_queue_peek_back(&vk_transfer->transfer_batch_queue, (void**)&batch)) {
+        return fill_internal_err(VKT_INTERNAL_ERROR_BATCH_QUEUE_EMPTY);
+    }
+
+    if (batch->request_count == MAX_REQUESTS_PER_BATCH) {
+        return fill_internal_err(VKT_INTERNAL_ERROR_BATCH_FULL);
+    }
+
+    memcpy(&batch->requests[batch->request_count++], transfer, sizeof(transfer_request));
+
+    return fill_success_err();
+}
+
+vkt_error vkt_end_transfer_batch(vkt* vk_transfer, transfer_callback callback) {
+    transfer_batch* batch;
+    if (!d_queue_peek_back(&vk_transfer->transfer_batch_queue, (void**)&batch)) {
+        return fill_internal_err(VKT_INTERNAL_ERROR_BATCH_QUEUE_EMPTY);
+    }
+
+    batch->callback = callback;
 
     return fill_success_err();
 }

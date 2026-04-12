@@ -103,6 +103,7 @@ typedef struct transfer_engine {
 } transfer_engine;
 */
 
+// TODO: allow users to override this limit
 #define MAX_REQUESTS_PER_BATCH 64
 #define MAX_BATCHES 16
 
@@ -126,11 +127,20 @@ typedef struct transfer_request {
     VkPipelineStageFlags dst_stage_mask;
 } transfer_request;
 
+// internal
+typedef struct transfer_command {
+    VkCommandPool   vk_cmd_pool;
+    VkCommandBuffer vk_cmd_buf;
+    VkFence         vk_fence;
+} transfer_command;
+
+// internal
 typedef void (*transfer_callback)(void*);
 
 // allows user to set a callback to handle when these transfers finish
 typedef struct transfer_batch {
     transfer_request  requests[MAX_REQUESTS_PER_BATCH];
+    u32               request_count;
     transfer_callback callback;
     void*             user_data;
 } transfer_batch;
@@ -138,6 +148,9 @@ typedef struct transfer_batch {
 typedef enum vkt_internal_error {
     VKT_INTERNAL_ERROR_NONE,
     VKT_INTERNAL_ERROR_CANT_POP_REQUEST,
+    VKT_INTERNAL_ERROR_BATCH_QUEUE_FULL,
+    VKT_INTERNAL_ERROR_BATCH_QUEUE_EMPTY,
+    VKT_INTERNAL_ERROR_BATCH_FULL,
 } vkt_internal_error;
 
 typedef enum vkt_error_type {
@@ -151,13 +164,6 @@ typedef struct vkt_error {
     vkt_internal_error internal_error;
     VkResult           vk_error;
 } vkt_error;
-
-// internal
-typedef struct transfer_command {
-    VkCommandPool   vk_cmd_pool;
-    VkCommandBuffer vk_cmd_buf;
-    VkFence         vk_fence;
-} transfer_command;
 
 typedef struct vkt {
     VkDevice         vk_device;

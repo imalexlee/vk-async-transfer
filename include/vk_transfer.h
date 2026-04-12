@@ -15,4 +15,12 @@ void transfer_handle_status(const transfer_engine* engine, transfer_handle handl
 void transfer_handle_reset(transfer_handle handle);
 */
 
-vkt_error vkt_init(vkt* vk_transfer, VkDevice device, u32 transfer_queue_family);
+vkt_error vkt_create(vkt* vk_transfer, VkDevice device, u32 transfer_queue_family);
+
+void vkt_destroy(vkt* vk_transfer);
+
+vkt_error vkt_begin_transfer_batch(vkt* vk_transfer);
+
+vkt_error vkt_submit_transfer(vkt* vk_transfer, const transfer_request* transfer);
+
+vkt_error vkt_end_transfer_batch(vkt* vk_transfer, transfer_callback callback);

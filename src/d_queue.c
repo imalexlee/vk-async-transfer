@@ -63,3 +63,16 @@ b8 d_queue_pop(d_queue* queue, void* element) {
 
     return true;
 }
+
+b8 d_queue_peek_back(d_queue* queue, void** element) {
+    assert(queue);
+    assert(element);
+
+    if (queue->count == 0) {
+        return false;
+    }
+
+    *element = (u8*)queue->memory + queue->back * queue->element_size;
+
+    return true;
+}

@@ -3,6 +3,7 @@
 #include "common.h"
 #include "transfer_types.h"
 
+/*
 b8 transfer_handle_pool_create(transfer_handle_pool* handle_pool);
 
 void transfer_handle_pool_destroy(transfer_handle_pool* handle_pool);
@@ -26,3 +27,4 @@ void transfer_handle_pool_insert_status_barrier(transfer_handle_pool* handle_poo
 b8 transfer_handle_pool_get_handle_status(transfer_handle_pool* handle_pool, transfer_handle handle, transfer_status* status);
 
 transfer_handle_fence_ref* transfer_handle_pool_get_handle_fence_ref(transfer_handle_pool* handle_pool, transfer_handle handle);
+*/

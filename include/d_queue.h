@@ -22,3 +22,6 @@ void d_queue_destroy(d_queue* queue);
 b8 d_queue_push(d_queue* queue, const void* element);
 
 b8 d_queue_pop(d_queue* queue, void* element);
+
+// gets pointer to element in place, not a copy
+b8 d_queue_peek_back(d_queue* queue, void** element);

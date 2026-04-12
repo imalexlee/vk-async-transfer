@@ -1,6 +1,7 @@
 #include "transfer_handle_pool.h"
 #include "transfer_types.h"
 
+/*
 typedef struct transfer_handle_t {
     _Atomic transfer_status   status;
     transfer_error            error;
@@ -229,3 +230,4 @@ b8 transfer_handle_pool_get_handle_status(transfer_handle_pool* handle_pool, tra
     *status = atomic_load(&handle_slot->handle.status);
     return true;
 }
+*/
